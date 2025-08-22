@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Random Number Generator</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="particles"></div>
+    
+    <header>
+        <h1>🌌 Quantum Random Number Generator</h1>
+        <p>Experience True Randomness from Quantum Mechanics</p>
+    </header>
+
+    <main>
+        <div class="container">
+            <div class="control-panel">
+                <h2>Generate Quantum Numbers</h2>
+                
+                <div class="form-group">
+                    <label for="bits">Quantum Bits (Qubits):</label>
+                    <select id="bits">
+                        <option value="4">4 bits (0-15)</option>
+                        <option value="8" selected>8 bits (0-255)</option>
+                        <option value="16">16 bits (0-65535)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="count">Number of Samples:</label>
+                    <input type="number" id="count" value="10" min="1" max="50">
+                </div>
+
+                <div class="form-group">
+                    <label for="format">Display Format:</label>
+                    <select id="format">
+                        <option value="decimal">Decimal Numbers</option>
+                        <option value="binary">Binary (0s and 1s)</option>
+                        <option value="hex">Hexadecimal</option>
+                    </select>
+                </div>
+
+                <button id="generate" class="quantum-btn">
+                    ⚡ Generate Quantum Numbers
+                </button>
+
+                <div id="loading" class="hidden">
+                    <div class="spinner"></div>
+                    <p>Quantum superposition collapsing...</p>
+                </div>
+            </div>
+
+            <div class="results-panel">
+                <h3>Quantum Results</h3>
+                <div id="results">
+                    <p class="placeholder">Click "Generate" to create quantum random numbers!</p>
+                </div>
+                
+                <div id="stats" class="hidden">
+                    <h4>Statistical Analysis</h4>
+                    <div class="stats-grid">
+                        <div><strong>Average:</strong> <span id="avg">-</span></div>
+                        <div><strong>Minimum:</strong> <span id="min">-</span></div>
+                        <div><strong>Maximum:</strong> <span id="max">-</span></div>
+                        <div><strong>Range:</strong> <span id="range">-</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-section">
+            <h3>How Quantum Randomness Works</h3>
+            <div class="info-cards">
+                <div class="card">
+                    <h4>🔬 Quantum Superposition</h4>
+                    <p>Quantum bits (qubits) exist in multiple states simultaneously until measured</p>
+                </div>
+                <div class="card">
+                    <h4>⚡ Hadamard Gates</h4>
+                    <p>Create perfect 50/50 probability between 0 and 1 states</p>
+                </div>
+                <div class="card">
+                    <h4>📊 Quantum Measurement</h4>
+                    <p>Measuring a qubit instantly collapses it to 0 or 1 randomly</p>
+                </div>
+                <div class="card">
+                    <h4>🔐 True Randomness</h4>
+                    <p>Unlike computer algorithms, quantum randomness cannot be predicted</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>Built with ❤️ and Quantum Physics | 
+        <a href="https://github.com/yourusername/qrng-website" target="_blank">View Source</a></p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
