@@ -1,4 +1,5 @@
 # app.py (updated)
+# app.py (updated)
 from flask import Flask, request, jsonify, Response, g, send_from_directory
 from flask_cors import CORS
 import time, math, logging, io, csv, json, datetime, threading, os
@@ -30,7 +31,8 @@ MAX_BITS = 16
 MAX_SAMPLES = 5000
 
 # Set the static folder to the 'frontend' directory, which is a sibling of the backend folder
-app = Flask(__name__, static_folder='../frontend')
+# FIXED: Explicitly set the static folder to 'frontend'
+app = Flask(__name__, static_folder='frontend')
 app.config["DEBUG"] = True
 
 # CORS configuration - allow all origins for development
@@ -267,29 +269,6 @@ def fetch_anu_uints(count: int, unit_bits: int, timeout: float = 8.0):
     logger.info(f"Successfully fetched {len(out)} values from ANU")
     return out
 
-def generate_from_anu(num_bits: int, num_samples: int):
-    if not (1 <= num_bits <= MAX_BITS):
-        raise ValueError(f"num_bits must be 1..{MAX_BITS}")
-
-    wanted = int(num_samples)
-    result = []
-    unit_bits = 8 if num_bits <= 8 else 16
-    max_val = (1 << num_bits) - 1
-
-    fetch_count = max(wanted * 2, 100)
-
-    while len(result) < wanted:
-        raw_nums = fetch_anu_uints(fetch_count, unit_bits)
-        filtered = [n for n in raw_nums if n <= max_val]
-        result.extend(filtered)
-
-        if len(result) >= wanted:
-            break
-
-        fetch_count = min(fetch_count * 2, 5000)
-
-    return result[:wanted]
-
 def generate_local_qiskit(num_bits: int, num_samples: int):
     if not (1 <= num_bits <= MAX_BITS):
         raise ValueError(f"num_bits must be 1..{MAX_BITS}")
@@ -311,8 +290,9 @@ def generate_local_qiskit(num_bits: int, num_samples: int):
     logger.info(f"Generated {len(numbers)} numbers using Qiskit")
     return numbers[:num_samples]
 
+# FIXED: Change the serve_index function to correctly serve the file from the subdirectory
 @app.route("/")
-def serve_intro():
+def serve_index():
     return send_from_directory(app.static_folder, 'intro.html')
 
 @app.route("/<path:path>")
@@ -528,8 +508,10 @@ def export_json():
     )
     return response
 
-@app.route("/auth/signup", methods=["POST"])
+@app.route("/auth/signup", methods=["POST", "OPTIONS"])
 def auth_signup():
+    if request.method == "OPTIONS":
+        return "", 204
     try:
         data = request.get_json(force=True)
         if not data:
@@ -575,8 +557,10 @@ def auth_signup():
         }
     })
 
-@app.route("/auth/login", methods=["POST"])
+@app.route("/auth/login", methods=["POST", "OPTIONS"])
 def auth_login():
+    if request.method == "OPTIONS":
+        return "", 204
     try:
         data = request.get_json(force=True)
         if not data:
@@ -627,9 +611,11 @@ def auth_me():
         }
     })
 
-@app.route("/save", methods=["POST"])
+@app.route("/save", methods=["POST", "OPTIONS"])
 @auth_required
 def save_generated():
+    if request.method == "OPTIONS":
+        return "", 204
     user = g.current_user
     try:
         payload = request.get_json(force=True)
@@ -757,34 +743,7 @@ def metrics():
         "timestamp": now_iso()
     })
 
-@app.route("/api/interpret", methods=["POST"])
-def interpret_api():
-    try:
-        data = request.get_json(force=True) or {}
-    except Exception as e:
-        logger.error(f"Invalid JSON in request: {e}")
-        return jsonify({
-            "status": "error",
-            "error_code": "INVALID_JSON",
-            "message": "Invalid JSON body"
-        }), 400
-
-    prompt = data.get("prompt")
-    if not prompt:
-        return jsonify({
-            "status": "error",
-            "message": "Prompt is required"
-        }), 400
-    
-    # You would typically have a function here to call the Gemini API
-    # and return the result. For this example, we'll just echo the prompt.
-    response_text = f"Interpretation of your data: {prompt}"
-    
-    return jsonify({
-        "status": "success",
-        "interpretation": response_text
-    })
-
 if __name__ == "__main__":
     logger.info("Starting Quantum RNG API with ANU API key support")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+
