@@ -292,15 +292,6 @@ def generate_local_qiskit(num_bits: int, num_samples: int):
     logger.info(f"Generated {len(numbers)} numbers using Qiskit")
     return numbers[:num_samples]
 
-@app.route("/")
-def serve_index():
-    # FIXED: Serve the index page from the static folder's root
-    return send_from_directory(app.static_folder, 'intro.html')
-
-@app.route("/<path:path>")
-def serve_static_files(path):
-    """Serve any static file from the frontend directory."""
-    return send_from_directory(app.static_folder, path)
 
 @app.route("/favicon.ico")
 def favicon():
@@ -748,6 +739,7 @@ def metrics():
 if __name__ == "__main__":
     logger.info("Starting Quantum RNG API with ANU API key support")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+
 
 
 
