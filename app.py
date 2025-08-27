@@ -301,19 +301,22 @@ def favicon():
     """
     return "", 204
 
+# NEW AND IMPROVED CODE
 @app.route("/health")
 def health():
-    anu_ok = False
-    anu_msg = None
-    if not ANU_API_KEY:
-        anu_msg = "ANU_API_KEY not configured"
-    else:
-        try:
-            test = fetch_anu_uints(1, 8, timeout=5.0)
-            anu_ok = bool(test)
-        except Exception as e:
-            logger.debug(f"ANU health check failed: {e}")
-            anu_msg = str(e)
+    # This check is instant and doesn't call the ANU API.
+    anu_configured = bool(ANU_API_KEY)
+
+    return jsonify({
+        "status": "ok",
+        "version": "2.2-format-support",
+        "build": "stable-with-formats",
+        "anu_configured": anu_configured, # Changed from "anu"
+        "anu_message": "ANU API key is configured." if anu_configured else "ANU API key not configured.",
+        "simulator": True,
+        "formats_supported": ["decimal", "binary", "hexadecimal"],
+        "timestamp": now_iso()
+    })
 
     return jsonify({
         "status": "ok",
@@ -739,6 +742,7 @@ def metrics():
 if __name__ == "__main__":
     logger.info("Starting Quantum RNG API with ANU API key support")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+
 
 
 
