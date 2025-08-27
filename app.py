@@ -1,4 +1,5 @@
 # app.py (updated)
+# app.py (updated)
 from flask import Flask, request, jsonify, Response, g, send_from_directory
 from flask_cors import CORS
 import time, math, logging, io, csv, json, datetime, threading, os
@@ -30,7 +31,6 @@ MAX_BITS = 16
 MAX_SAMPLES = 5000
 
 # Set the static folder to the 'frontend' directory, which is a sibling of the backend folder
-# FIXED: Explicitly set the static folder to 'frontend' and print it for debugging
 app = Flask(__name__, static_folder='frontend')
 app.config["DEBUG"] = True
 print(f"Flask static folder set to: {app.static_folder}")
@@ -293,7 +293,7 @@ def generate_local_qiskit(num_bits: int, num_samples: int):
 # FIXED: Use os.path.join for robust path handling
 @app.route("/")
 def serve_index():
-    return send_from_directory(app.static_folder, 'intro.html')
+    return send_from_directory(os.path.join(os.path.dirname(__file__), 'frontend'), 'intro.html')
 
 @app.route("/<path:path>")
 def serve_static_files(path):
@@ -746,6 +746,8 @@ def metrics():
 if __name__ == "__main__":
     logger.info("Starting Quantum RNG API with ANU API key support")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+
+
 
 
 
