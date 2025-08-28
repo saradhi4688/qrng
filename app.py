@@ -1,7 +1,5 @@
-# app.py (updated)
-# app.py (updated)
-# app.py (updated)
-from flask import Flask, request, jsonify, Response, g, send_from_directory
+# app.py (Corrected and Final Version)
+from flask import Flask, request, jsonify, Response, g
 from flask_cors import CORS
 import time, math, logging, io, csv, json, datetime, threading, os
 import requests
@@ -23,21 +21,17 @@ load_dotenv()
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/qrngdb")
 JWT_SECRET = os.environ.get("JWT_SECRET", "change_this_now")
 JWT_EXP_SECONDS = int(os.environ.get("JWT_EXP_SECONDS", 7*24*3600))
-
-# ANU QRNG config: read API key from environment
 ANU_BASE = os.environ.get("ANU_BASE", "https://api.quantumnumbers.anu.edu.au")
 ANU_API_KEY = os.environ.get("ANU_API_KEY", "")
 
 MAX_BITS = 16
 MAX_SAMPLES = 5000
 
-# Set the static folder to the 'frontend' directory, which is a sibling of the backend folder
-# FIXED: Use a more robust Flask initialization
-app = Flask(__name__, static_folder='frontend')
+# Use a standard Flask initialization for a pure API
+app = Flask(__name__)
 app.config["DEBUG"] = True
-print(f"Flask static folder set to: {app.static_folder}")
 
-# CORS configuration - allow all origins for development
+# CORS configuration
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # Logging configuration
@@ -65,9 +59,9 @@ try:
     logger.info("Database connected successfully")
 except Exception as e:
     logger.error(f"Database connection failed: {e}")
-    # Continue — the app can run without DB for dev, but some endpoints will fail.
+    # The app will continue, but auth endpoints will fail if the DB is down.
 
-# Utility functions (unchanged)
+# Utility functions
 def format_number(number, format_type, bits=8):
     num = int(number)
     if format_type == 'binary':
@@ -113,7 +107,7 @@ def handle_exception(e):
         "error_code": "INTERNAL_ERROR"
     }), 500
 
-# Auth helpers (unchanged)
+# Auth helpers
 def hash_password(pw):
     return bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt())
 
@@ -142,41 +136,25 @@ def auth_required(f):
     def wrapper(*args, **kwargs):
         auth = request.headers.get("Authorization", "")
         if not auth or not auth.startswith("Bearer "):
-            return jsonify({
-                "status":"error",
-                "message":"Missing Authorization header",
-                "error_code":"MISSING_AUTH"
-            }), 401
+            return jsonify({"status":"error", "message":"Missing Authorization header", "error_code":"MISSING_AUTH"}), 401
 
         token = auth.split(" ",1)[1].strip()
         payload = decode_jwt(token)
         if not payload:
-            return jsonify({
-                "status":"error",
-                "message":"Invalid or expired token",
-                "error_code":"INVALID_TOKEN"
-            }), 401
+            return jsonify({"status":"error", "message":"Invalid or expired token", "error_code":"INVALID_TOKEN"}), 401
 
         user_id_raw = payload.get("user_id")
         try:
             if not user_id_raw:
                 raise ValueError("no user_id in token")
-            user_id = ObjectId(user_id_raw) if not isinstance(user_id_raw, ObjectId) else user_id_raw
-        except Exception as ex:
+            user_id = ObjectId(user_id_raw)
+        except Exception:
             logger.debug(f"Invalid user_id in token: {user_id_raw}")
-            return jsonify({
-                "status":"error",
-                "message":"Invalid user id",
-                "error_code":"INVALID_USER_ID"
-            }), 401
+            return jsonify({"status":"error", "message":"Invalid user id", "error_code":"INVALID_USER_ID"}), 401
 
         user = users_col.find_one({"_id": user_id})
         if not user:
-            return jsonify({
-                "status":"error",
-                "message":"User not found",
-                "error_code":"USER_NOT_FOUND"
-            }), 401
+            return jsonify({"status":"error", "message":"User not found", "error_code":"USER_NOT_FOUND"}), 401
 
         g.current_user = user
         return f(*args, **kwargs)
@@ -184,9 +162,9 @@ def auth_required(f):
 
 # Utility helpers
 def to_native(x):
-    if isinstance(x, np.generic): 
+    if isinstance(x, np.generic):
         return x.item()
-    if isinstance(x, np.ndarray): 
+    if isinstance(x, np.ndarray):
         return x.tolist()
     return x
 
@@ -216,114 +194,86 @@ def compute_entropy(numbers):
 
 # ANU QRNG Functions
 def fetch_anu_uints(count: int, unit_bits: int, timeout: float = 8.0):
-    """
-    Fetch random integers from ANU QRNG.
-    Uses ANU_API_KEY from environment if present.
-    """
     assert unit_bits in (8, 16), "unit_bits must be 8 or 16"
     unit_type = "uint8" if unit_bits == 8 else "uint16"
     out = []
     remaining = int(count)
-
     logger.info(f"Fetching {count} {unit_type} values from ANU")
-
-    # Build request-level headers (do not log keys)
     req_headers = {}
     if ANU_API_KEY:
-        req_headers["Authorization"] = f"Bearer {ANU_API_KEY}"
         req_headers["X-API-KEY"] = ANU_API_KEY
     else:
-        logger.debug("ANU_API_KEY not configured; requests to ANU will be unauthenticated (may be rejected).")
+        logger.debug("ANU_API_KEY not configured; requests to ANU may be rejected.")
 
     while remaining > 0:
         chunk = min(remaining, 1024)
         params = {"length": chunk, "type": unit_type}
-
         try:
             resp = session.get(ANU_BASE, params=params, headers=req_headers, timeout=timeout)
-            if resp.status_code in (401, 403):
-                raise RuntimeError(f"ANU API authentication failed (HTTP {resp.status_code}). Check ANU_API_KEY configuration.")
             resp.raise_for_status()
             j = resp.json()
-
-            if isinstance(j, dict) and j.get("success") is False:
-                raise RuntimeError(f"ANU returned success=false: {j}")
-
-            if isinstance(j, dict) and "data" in j:
-                data = j.get("data", [])
-            elif isinstance(j, list):
-                data = j
-            else:
-                data = j.get("data") if isinstance(j, dict) else []
-
+            data = j.get("data", [])
             if not data:
                 raise RuntimeError(f"ANU returned empty data or unexpected payload: {j}")
-
             out.extend([int(x) for x in data])
             remaining -= len(data)
             if remaining > 0:
                 time.sleep(0.02)
-
         except Exception as e:
             logger.error(f"ANU fetch failed: {e}")
             raise
-
     logger.info(f"Successfully fetched {len(out)} values from ANU")
     return out
 
 def generate_local_qiskit(num_bits: int, num_samples: int):
     if not (1 <= num_bits <= MAX_BITS):
         raise ValueError(f"num_bits must be 1..{MAX_BITS}")
-
     logger.info(f"Generating {num_samples} samples with {num_bits} bits using Qiskit")
     backend = AerSimulator()
     qc = QuantumCircuit(num_bits, num_bits)
     qc.h(range(num_bits))
     qc.measure(range(num_bits), range(num_bits))
-
     tqc = transpile(qc, backend)
     job = backend.run(tqc, shots=num_samples)
     counts = job.result().get_counts()
-
     numbers = []
     for bitstring, freq in counts.items():
         numbers.extend([int(bitstring, 2)] * int(freq))
-
     logger.info(f"Generated {len(numbers)} numbers using Qiskit")
     return numbers[:num_samples]
 
+def generate_from_anu(num_bits: int, num_samples: int):
+    """
+    Generates numbers of a specific bit length using the ANU API.
+    """
+    unit_bits = 16 if num_bits > 8 else 8
+    numbers_per_unit = unit_bits // num_bits
+    units_needed = math.ceil(num_samples / numbers_per_unit)
+    raw_uints = fetch_anu_uints(units_needed, unit_bits)
+    numbers = []
+    bit_mask = (1 << num_bits) - 1
+    for uint in raw_uints:
+        for i in range(numbers_per_unit):
+            if len(numbers) < num_samples:
+                shifted_val = uint >> (i * num_bits)
+                numbers.append(shifted_val & bit_mask)
+    return numbers
+
+# --- API Endpoints ---
 
 @app.route("/favicon.ico")
 def favicon():
-    """
-    Handles requests for favicon.ico to prevent 404 errors in the logs.
-    A blank icon is returned.
-    """
     return "", 204
 
-# NEW AND IMPROVED CODE
 @app.route("/health")
 def health():
-    # This check is instant and doesn't call the ANU API.
     anu_configured = bool(ANU_API_KEY)
-
     return jsonify({
         "status": "ok",
         "version": "2.2-format-support",
         "build": "stable-with-formats",
-        "anu_configured": anu_configured, # Changed from "anu"
+        "anu_configured": anu_configured,
         "anu_message": "ANU API key is configured." if anu_configured else "ANU API key not configured.",
-        "simulator": True,
-        "formats_supported": ["decimal", "binary", "hexadecimal"],
-        "timestamp": now_iso()
-    })
-
-    return jsonify({
-        "status": "ok",
-        "version": "2.2-format-support",
-        "build": "stable-with-formats",
-        "anu": anu_ok,
-        "anu_message": anu_msg,
         "simulator": True,
         "formats_supported": ["decimal", "binary", "hexadecimal"],
         "timestamp": now_iso()
@@ -332,47 +282,28 @@ def health():
 @app.route("/generate", methods=["POST"])
 def generate_endpoint():
     global last_generation
-
     try:
         data = request.get_json(force=True) or {}
     except Exception as e:
         logger.error(f"Invalid JSON in request: {e}")
-        return jsonify({
-            "status": "error",
-            "error_code": "INVALID_JSON",
-            "message": "Invalid JSON body"
-        }), 400
+        return jsonify({"status":"error", "error_code":"INVALID_JSON", "message":"Invalid JSON body"}), 400
 
-    num_bits = data.get("num_bits", data.get("numBits", 8))
-    num_samples = data.get("num_samples", data.get("numSamples", 10))
+    num_bits = data.get("num_bits", 8)
+    num_samples = data.get("num_samples", 10)
     format_type = (data.get("format", "decimal") or "decimal").lower()
 
     try:
         num_bits = int(num_bits)
         num_samples = int(num_samples)
     except (ValueError, TypeError):
-        return jsonify({
-            "status": "error",
-            "error_code": "INVALID_PARAMS",
-            "message": "num_bits and num_samples must be integers"
-        }), 400
+        return jsonify({"status":"error", "error_code":"INVALID_PARAMS", "message":"num_bits and num_samples must be integers"}), 400
 
     if format_type not in ['decimal', 'binary', 'hexadecimal']:
         format_type = 'decimal'
-
     if not (1 <= num_bits <= MAX_BITS):
-        return jsonify({
-            "status": "error",
-            "error_code": "INVALID_PARAMS",
-            "message": f"num_bits must be 1..{MAX_BITS}"
-        }), 400
-
+        return jsonify({"status":"error", "error_code":"INVALID_PARAMS", "message":f"num_bits must be 1..{MAX_BITS}"}), 400
     if not (1 <= num_samples <= MAX_SAMPLES):
-        return jsonify({
-            "status": "error",
-            "error_code": "INVALID_PARAMS",
-            "message": f"num_samples must be 1..{MAX_SAMPLES}"
-        }), 400
+        return jsonify({"status":"error", "error_code":"INVALID_PARAMS", "message":f"num_samples must be 1..{MAX_SAMPLES}"}), 400
 
     logger.info(f"Generating {num_samples} samples with {num_bits} bits in {format_type} format")
     numbers = []
@@ -390,11 +321,7 @@ def generate_endpoint():
             logger.info(f"Successfully generated {len(numbers)} numbers from simulator")
         except Exception as e2:
             logger.error(f"Simulator also failed: {e2}")
-            return jsonify({
-                "status": "error",
-                "error_code": "SOURCE_FAILURE",
-                "message": "Both ANU QRNG and simulator failed."
-            }), 500
+            return jsonify({"status":"error", "error_code":"SOURCE_FAILURE", "message":"Both ANU QRNG and simulator failed."}), 500
 
     stats = compute_basic_stats(numbers)
     entropy = compute_entropy(numbers)
@@ -403,40 +330,20 @@ def generate_endpoint():
     format_info = get_format_info(format_type, num_bits)
 
     meta = {
-        "source": source,
-        "num_bits": num_bits,
-        "num_samples": num_samples,
-        "format": format_type,
-        "format_info": format_info,
-        "stats": stats,
-        "entropy": entropy,
-        "timestamp": timestamp,
-        "version": "2.2-format-support",
-        "build": "stable-with-formats"
+        "source": source, "num_bits": num_bits, "num_samples": num_samples,
+        "format": format_type, "format_info": format_info, "stats": stats,
+        "entropy": entropy, "timestamp": timestamp, "version": "2.2-format-support"
     }
 
     with lock:
-        last_generation = {
-            "numbers": [int(x) for x in numbers],
-            "meta": meta
-        }
+        last_generation = {"numbers": [int(x) for x in numbers], "meta": meta}
 
     response = {
-        "status": "success",
-        "source": source,
-        "num_bits": num_bits,
-        "num_samples": num_samples,
-        "actual_count": len(numbers),
-        "format": format_type,
-        "format_info": format_info,
-        "stats": stats,
-        "entropy": entropy,
-        "timestamp": timestamp,
-        "version": "2.2-format-support",
-        "build": "stable-with-formats",
-        "meta": meta,
-        "numbers": [int(x) for x in numbers],
-        "formatted_numbers": formatted_numbers
+        "status": "success", "source": source, "num_bits": num_bits,
+        "num_samples": num_samples, "actual_count": len(numbers), "format": format_type,
+        "format_info": format_info, "stats": stats, "entropy": entropy,
+        "timestamp": timestamp, "version": "2.2-format-support", "meta": meta,
+        "numbers": [int(x) for x in numbers], "formatted_numbers": formatted_numbers
     }
 
     logger.info(f"Generation completed: {len(numbers)} numbers from {source} in {format_type} format")
@@ -447,14 +354,10 @@ def export_csv():
     with lock:
         numbers = last_generation.get("numbers", [])
         meta = last_generation.get("meta", {})
-
     if not numbers:
-        return jsonify({
-            "status": "error",
-            "message": "No numbers to export"
-        }), 400
+        return jsonify({"status": "error", "message": "No numbers to export"}), 400
 
-    format_type = request.args.get('format', 'decimal')
+    format_type = request.args.get('format', meta.get('format', 'decimal'))
     num_bits = meta.get('num_bits', 8)
     formatted_numbers = format_number_array(numbers, format_type, num_bits)
 
@@ -466,28 +369,20 @@ def export_csv():
 
     csv_content = output.getvalue()
     output.close()
-
-    response = Response(
-        csv_content,
-        mimetype="text/csv",
+    return Response(
+        csv_content, mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename=qrng_{format_type}_{now_iso().replace(':', '')}.csv"}
     )
-    return response
 
 @app.route("/export/json")
 def export_json():
     with lock:
         data = last_generation.copy()
-
     if not data.get("numbers"):
-        return jsonify({
-            "status": "error",
-            "message": "No numbers to export"
-        }), 400
+        return jsonify({"status": "error", "message": "No numbers to export"}), 400
 
     num_bits = data.get("meta", {}).get("num_bits", 8)
     numbers = data.get("numbers", [])
-
     formatted_data = {
         **data,
         "all_formats": {
@@ -496,102 +391,58 @@ def export_json():
             "hexadecimal": format_number_array(numbers, "hexadecimal", num_bits)
         }
     }
-
-    response = Response(
+    return Response(
         json.dumps(formatted_data, indent=2, default=to_native),
         mimetype="application/json",
         headers={"Content-Disposition": f"attachment; filename=qrng_all_formats_{now_iso().replace(':', '')}.json"}
     )
-    return response
 
 @app.route("/auth/signup", methods=["POST", "OPTIONS"])
 def auth_signup():
-    if request.method == "OPTIONS":
-        return "", 204
+    if request.method == "OPTIONS": return "", 204
     try:
-        data = request.get_json(force=True)
-        if not data:
-            data = {}
+        data = request.get_json(force=True) or {}
     except:
-        return jsonify({
-            "status": "error",
-            "message": "Invalid JSON"
-        }), 400
+        return jsonify({"status": "error", "message": "Invalid JSON"}), 400
 
     email = (data.get("email") or "").strip().lower()
     password = data.get("password", "")
-
     if not email or not password or len(password) < 6:
-        return jsonify({
-            "status": "error",
-            "message": "email & password (>=6 chars) required"
-        }), 400
-
+        return jsonify({"status": "error", "message": "email & password (>=6 chars) required"}), 400
     if users_col.find_one({"email": email}):
-        return jsonify({
-            "status": "error",
-            "message": "Email already exists"
-        }), 409
+        return jsonify({"status": "error", "message": "Email already exists"}), 409
 
     pw_hash = hash_password(password)
-    doc = {
-        "email": email,
-        "password_hash": pw_hash,
-        "created_at": now_iso()
-    }
+    doc = {"email": email, "password_hash": pw_hash, "created_at": now_iso()}
     res = users_col.insert_one(doc)
     user_id = res.inserted_id
-
     token = create_jwt({"user_id": str(user_id), "email": email})
-
     return jsonify({
-        "status": "success",
-        "token": token,
-        "user": {
-            "email": email,
-            "user_id": str(user_id)
-        }
+        "status": "success", "token": token,
+        "user": {"email": email, "user_id": str(user_id)}
     })
 
 @app.route("/auth/login", methods=["POST", "OPTIONS"])
 def auth_login():
-    if request.method == "OPTIONS":
-        return "", 204
+    if request.method == "OPTIONS": return "", 204
     try:
-        data = request.get_json(force=True)
-        if not data:
-            data = {}
+        data = request.get_json(force=True) or {}
     except:
-        return jsonify({
-            "status": "error",
-            "message": "Invalid JSON"
-        }), 400
+        return jsonify({"status": "error", "message": "Invalid JSON"}), 400
 
     email = (data.get("email") or "").strip().lower()
     password = data.get("password", "")
-
     if not email or not password:
-        return jsonify({
-            "status": "error",
-            "message": "email & password required"
-        }), 400
+        return jsonify({"status": "error", "message": "email & password required"}), 400
 
     user = users_col.find_one({"email": email})
     if not user or not verify_password(password, user.get("password_hash", b"")):
-        return jsonify({
-            "status": "error",
-            "message": "Invalid credentials"
-        }), 401
+        return jsonify({"status": "error", "message": "Invalid credentials"}), 401
 
     token = create_jwt({"user_id": str(user["_id"]), "email": user["email"]})
-
     return jsonify({
-        "status": "success",
-        "token": token,
-        "user": {
-            "email": user["email"],
-            "user_id": str(user["_id"])
-        }
+        "status": "success", "token": token,
+        "user": {"email": user["email"], "user_id": str(user["_id"])}
     })
 
 @app.route("/auth/me")
@@ -601,8 +452,7 @@ def auth_me():
     return jsonify({
         "status": "success",
         "user": {
-            "email": user["email"],
-            "user_id": str(user["_id"]),
+            "email": user["email"], "user_id": str(user["_id"]),
             "created_at": user.get("created_at")
         }
     })
@@ -610,51 +460,27 @@ def auth_me():
 @app.route("/save", methods=["POST", "OPTIONS"])
 @auth_required
 def save_generated():
-    if request.method == "OPTIONS":
-        return "", 204
+    if request.method == "OPTIONS": return "", 204
     user = g.current_user
-    try:
-        payload = request.get_json(force=True)
-        if not payload:
-            payload = {}
-    except:
-        payload = {}
-
+    payload = request.get_json(force=True) or {}
     numbers = payload.get("numbers")
     meta = payload.get("meta")
     name = payload.get("name", f"qrng_{now_iso()}")
 
     with lock:
-        if numbers is None:
-            numbers = last_generation.get("numbers", [])
-        if meta is None:
-            meta = last_generation.get("meta", {})
-
+        if numbers is None: numbers = last_generation.get("numbers", [])
+        if meta is None: meta = last_generation.get("meta", {})
     if not numbers:
-        return jsonify({
-            "status": "error",
-            "message": "No numbers to save"
-        }), 400
+        return jsonify({"status": "error", "message": "No numbers to save"}), 400
 
     doc = {
-        "user_id": user["_id"],
-        "name": name,
-        "num_items": len(numbers),
-        "num_bits": meta.get("num_bits"),
-        "num_samples": meta.get("num_samples"),
-        "format_type": meta.get("format", "decimal"),
-        "numbers": [int(x) for x in numbers],
-        "meta": meta,
-        "created_at": now_iso()
+        "user_id": user["_id"], "name": name, "num_items": len(numbers),
+        "num_bits": meta.get("num_bits"), "num_samples": meta.get("num_samples"),
+        "format_type": meta.get("format", "decimal"), "numbers": [int(x) for x in numbers],
+        "meta": meta, "created_at": now_iso()
     }
-
     res = saves_col.insert_one(doc)
-
-    return jsonify({
-        "status": "success",
-        "save_id": str(res.inserted_id),
-        "name": name
-    })
+    return jsonify({"status": "success", "save_id": str(res.inserted_id), "name": name})
 
 @app.route("/saves", methods=["GET"])
 @auth_required
@@ -664,19 +490,12 @@ def list_saves():
     out = []
     for s in cursor:
         out.append({
-            "save_id": str(s["_id"]),
-            "name": s.get("name"),
-            "created_at": s.get("created_at"),
-            "num_items": s.get("num_items"),
-            "num_bits": s.get("num_bits"),
-            "num_samples": s.get("num_samples"),
-            "format_type": s.get("format_type", "decimal"),
-            "meta": s.get("meta", {})
+            "save_id": str(s["_id"]), "name": s.get("name"),
+            "created_at": s.get("created_at"), "num_items": s.get("num_items"),
+            "num_bits": s.get("num_bits"), "num_samples": s.get("num_samples"),
+            "format_type": s.get("format_type", "decimal"), "meta": s.get("meta", {})
         })
-    return jsonify({
-        "status": "success",
-        "items": out
-    })
+    return jsonify({"status": "success", "items": out})
 
 @app.route("/saves/<save_id>", methods=["GET"])
 @auth_required
@@ -685,21 +504,12 @@ def get_save(save_id):
     try:
         s = saves_col.find_one({"_id": ObjectId(save_id), "user_id": user["_id"]})
         if not s:
-            return jsonify({
-                "status": "error",
-                "message": "Save not found"
-            }), 404
+            return jsonify({"status": "error", "message": "Save not found"}), 404
         s["_id"] = str(s["_id"])
         s["user_id"] = str(s["user_id"])
-        return jsonify({
-            "status": "success",
-            "save": s
-        })
+        return jsonify({"status": "success", "save": s})
     except:
-        return jsonify({
-            "status": "error",
-            "message": "Invalid save ID"
-        }), 400
+        return jsonify({"status": "error", "message": "Invalid save ID"}), 400
 
 @app.route("/saves/<save_id>", methods=["DELETE"])
 @auth_required
@@ -708,49 +518,13 @@ def delete_save(save_id):
     try:
         res = saves_col.delete_one({"_id": ObjectId(save_id), "user_id": user["_id"]})
         if res.deleted_count == 0:
-            return jsonify({
-                "status": "error",
-                "message": "Save not found or access denied"
-            }), 404
+            return jsonify({"status": "error", "message": "Save not found or access denied"}), 404
         logger.info(f"Save {save_id} deleted by user {user['email']}")
-        return jsonify({
-            "status": "success",
-            "message": "Save deleted successfully"
-        })
+        return jsonify({"status": "success", "message": "Save deleted successfully"})
     except Exception as e:
         logger.error(f"Delete save failed: {e}")
-        return jsonify({
-            "status": "error",
-            "message": "Invalid save ID"
-        }), 400
-
-@app.route("/metrics")
-def metrics():
-    with lock:
-        count = len(last_generation.get("numbers", []))
-        format_type = last_generation.get("meta", {}).get("format", "decimal")
-    return jsonify({
-        "status": "ok",
-        "version": "2.2-format-support",
-        "build": "stable-with-formats",
-        "last_count": count,
-        "last_format": format_type,
-        "supported_formats": ["decimal", "binary", "hexadecimal"],
-        "timestamp": now_iso()
-    })
+        return jsonify({"status": "error", "message": "Invalid save ID"}), 400
 
 if __name__ == "__main__":
-    logger.info("Starting Quantum RNG API with ANU API key support")
+    logger.info("Starting Quantum RNG API")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
-
-
-
-
-
-
-
-
-
-
-
-
