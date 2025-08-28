@@ -206,7 +206,7 @@ def fetch_anu_uints(count: int, unit_bits: int, timeout: float = 8.0):
     logger.info(f"Fetching {count} {unit_type} values from ANU")
     req_headers = {}
     if ANU_API_KEY:
-        req_headers["X-API-KEY"] = ANU_API_KEY
+        req_headers["x-api-key"] = ANU_API_KEY
     else:
         logger.debug("ANU_API_KEY not configured; requests to ANU may be rejected.")
 
@@ -533,4 +533,5 @@ def delete_save(save_id):
 if __name__ == "__main__":
     logger.info("Starting Quantum RNG API")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+
 
