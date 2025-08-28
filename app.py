@@ -134,7 +134,12 @@ def decode_jwt(token):
 def auth_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
+        # Add this check to allow preflight requests
+        if request.method == "OPTIONS":
+            return jsonify({}), 200
+
         auth = request.headers.get("Authorization", "")
+        # ... rest of the logic
         if not auth or not auth.startswith("Bearer "):
             return jsonify({"status":"error", "message":"Missing Authorization header", "error_code":"MISSING_AUTH"}), 401
 
@@ -528,3 +533,4 @@ def delete_save(save_id):
 if __name__ == "__main__":
     logger.info("Starting Quantum RNG API")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+
